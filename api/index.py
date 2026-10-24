@@ -8,16 +8,28 @@ app = Flask(__name__, template_folder='../templates')
 CORS(app)
 
 # ---- CONFIG ----
-DISCLAIMER = ("\n\n⚠️ Ye sirf aam maloomat hai, medical advice nahi. "
-              "Diagnosis aur ilaaj ke liye registered doctor/veterinarian se milo.")
+DISCLAIMER_UR = ("\n\n⚠️ Ye sirf aam maloomat hai, medical advice nahi. "
+                 "Diagnosis aur ilaaj ke liye registered doctor/veterinarian se milo.")
+
+DISCLAIMER_EN = ("\n\n⚠️ This is general information only, not medical advice. "
+                 "Please consult a registered doctor/veterinarian for diagnosis and treatment.")
+
+DOCTOR_LINE_UR = "\n\n👨‍⚕️ Behtar hoga ke aap registered doctor/veterinarian se rabta karein."
+DOCTOR_LINE_EN = "\n\n👨‍⚕️ It is best to contact a registered doctor/veterinarian."
 
 SYSTEM_RULES = """Tum "Siddique AI Chat Bot" ho — medical/veterinary information assistant.
+
 Rules:
-1. Sirf aam maloomat do. Diagnosis na karo ("aapko ye bimari hai" — mana hai).
-2. Dawa ka naam, dose, ya ilaaj ka plan kabhi na batao.
-3. Personal case (mera kutta, meri bimari) par kaho: "Doctor ka check-up zaroori hai."
-4. Emergency par kaho: "Foran doctor ke paas jao."
-5. Agar maloomat nahi to saaf kaho: "Is bare mein maloomat nahi hai."
+1. User ko aam maloomat ke saath saath general guidance/advice bhi do
+   (jaise: "paani zyada pilayein", "aaram karayein", "safai ka khayal rakhein").
+2. Kabhi bhi diagnosis na karo ("aapko ye bimari hai" — mana hai).
+3. Dawa ka naam, dose, ya specific ilaaj ka plan kabhi na batao.
+4. Personal case (mera kutta, meri bimari) par general advice do,
+   lekin saath mein kaho: "Behtar hoga ke doctor ka check-up karwayein."
+5. Emergency symptoms (saans, khoon, behoshi) par foran kaho:
+   "Foran doctor ke paas jao."
+6. Agar maloomat nahi to saaf kaho: "Is bare mein maloomat nahi hai."
+7. User jis zubaan mein likhe (Urdu, Roman Urdu, English), usi mein jawab do.
 """
 
 # Groq ke naye model names (purane llama models band ho chuke hain)
@@ -46,6 +58,29 @@ def ask_llm(prompt, model=None):
     )
     return resp.choices[0].message.content
 
+# ---- LANGUAGE HELPERS ----
+def is_urdu(msg):
+    urdu_words = ["kya", "hai", "kaise", "batao", "karo", "mujhe", "mera", "meri",
+                  "kutta", "billi", "bimari", "bukhar", "dawa", "ilaaj", "kaun",
+                  "tum", "aap", "kab", "kahan", "kyun", "nahi", "haan", "acha"]
+    return any(w in msg.lower().split() for w in urdu_words)
+
+def get_disclaimer(msg):
+    return DISCLAIMER_UR if is_urdu(msg) else DISCLAIMER_EN
+
+def get_doctor_line(msg):
+    return DOCTOR_LINE_UR if is_urdu(msg) else DOCTOR_LINE_EN
+
+# ---- MEDICAL CHECK ----
+def is_medical(msg):
+    medical_words = ["bimari", "disease", "bukhar", "fever", "dawa", "medicine",
+                     "kutta", "billi", "dog", "cat", "janwar", "animal",
+                     "kidney", "heart", "sugar", "diabetes", "infection",
+                     "alamat", "symptom", "ilaaj", "treatment", "doctor",
+                     "vet", "veterinary", "sehat", "health", "pain", "dard",
+                     "bimar", "beemar", "ilaj", "daktar"]
+    return any(w in msg.lower() for w in medical_words)
+
 # ---- SAFETY ----
 def is_unsafe(msg):
     bad = ["diagnose", "diagnosis", "dawa", "dose", "medicine", "tablet",
@@ -70,9 +105,11 @@ def make_diagram(msg):
     prompt = (f"{SYSTEM_RULES}\n\n"
               f"User diagram maang raha hai: \"{msg}\"\n"
               f"Sirf valid Mermaid code likho (graph TD ...), kuch aur nahi. "
-              f"``` waghera na lagao.")
+              f"```, <br>, ya koi HTML tag na lagao. "
+              f"Node labels simple rakho, special characters na daalo.")
     code = ask_llm(prompt, model=BIG_MODEL)
     code = code.replace("```mermaid", "").replace("```", "").strip()
+    code = code.replace("<br/>", " ").replace("<br>", " ").replace("<br />", " ")
     return code
 
 # ---- IMAGE ----
@@ -95,12 +132,17 @@ def chat():
         if not msg:
             return jsonify({"type": "text", "answer": "Sawal likho."})
 
+        # Sirf medical sawal par disclaimer + doctor line
+        med = is_medical(msg)
+        disc = get_disclaimer(msg) if med else ""
+        doctor_line = get_doctor_line(msg) if med else ""
+
         if is_unsafe(msg):
             return jsonify({
                 "type": "refuse",
                 "answer": ("Is sawal ke liye doctor ka check-up zaroori hai. "
                            "Main diagnosis ya dawa nahi bata sakta. "
-                           "Registered doctor/vet se milo.")
+                           "Registered doctor/vet se milo." + doctor_line)
             })
 
         intent = detect_intent(msg)
@@ -109,18 +151,18 @@ def chat():
             return jsonify({
                 "type": "diagram",
                 "code": make_diagram(msg),
-                "disclaimer": DISCLAIMER
+                "disclaimer": disc + doctor_line
             })
 
         if intent == "IMAGE":
             return jsonify({
                 "type": "image",
                 "url": make_image(msg),
-                "disclaimer": DISCLAIMER
+                "disclaimer": disc + doctor_line
             })
 
         answer = ask_llm(f"{SYSTEM_RULES}\n\nUser sawal: {msg}\n\nJawab:", model=BIG_MODEL)
-        return jsonify({"type": "text", "answer": answer + DISCLAIMER})
+        return jsonify({"type": "text", "answer": answer + disc + doctor_line})
 
     except Exception as e:
         return jsonify({"type": "text", "answer": f"Error: {str(e)}"}), 500
