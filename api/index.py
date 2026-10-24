@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
@@ -32,9 +33,8 @@ Rules:
 7. User jis zubaan mein likhe (Urdu, Roman Urdu, English), usi mein jawab do.
 """
 
-# Groq ke naye model names (purane llama models band ho chuke hain)
-BIG_MODEL = "openai/gpt-oss-120b"   # normal jawab ke liye
-SMALL_MODEL = "openai/gpt-oss-20b"  # intent detection / image prompt ke liye
+BIG_MODEL = "openai/gpt-oss-120b"
+SMALL_MODEL = "openai/gpt-oss-20b"
 
 _client = None
 
@@ -58,7 +58,7 @@ def ask_llm(prompt, model=None):
     )
     return resp.choices[0].message.content
 
-# ---- LANGUAGE HELPERS ----
+# ---- LANGUAGE ----
 def is_urdu(msg):
     urdu_words = ["kya", "hai", "kaise", "batao", "karo", "mujhe", "mera", "meri",
                   "kutta", "billi", "bimari", "bukhar", "dawa", "ilaaj", "kaun",
@@ -100,17 +100,34 @@ def detect_intent(msg):
     except:
         return "TEXT"
 
-# ---- DIAGRAM ----
+# ---- DIAGRAM (FIXED) ----
+def clean_mermaid(code):
+    """Mermaid code se saari gandagi saaf karo"""
+    code = code.replace("```mermaid", "").replace("```", "").strip()
+    # <br> ko newline banao (remove NAHI)
+    code = code.replace("<br/>", "\n").replace("<br />", "\n").replace("<br>", "\n")
+    # agar poora code ek hi line par hai to graph TD ke baad newline lagao
+    if "graph TD" in code and "\n" not in code.split("graph TD")[1][:50]:
+        code = code.replace("graph TD", "graph TD\n", 1)
+    # har " --> " ke pehle newline (agar nahi hai)
+    code = re.sub(r'(?<!\n)\s*-->\s*', ' --> ', code)
+    # extra blank lines hatao
+    lines = [l.rstrip() for l in code.split("\n") if l.strip()]
+    return "\n".join(lines)
+
 def make_diagram(msg):
     prompt = (f"{SYSTEM_RULES}\n\n"
               f"User diagram maang raha hai: \"{msg}\"\n"
-              f"Sirf valid Mermaid code likho (graph TD ...), kuch aur nahi. "
-              f"```, <br>, ya koi HTML tag na lagao. "
-              f"Node labels simple rakho, special characters na daalo.")
+              f"Sirf valid Mermaid code likho. Format exactly aisa ho:\n"
+              f"graph TD\n"
+              f"    A[Start] --> B[Step 1]\n"
+              f"    B --> C[Step 2]\n"
+              f"Har node ALAG line par ho. <br/> ya koi HTML tag bilkul na lagao. "
+              f"Node labels simple rakho (sirf letters/numbers/spaces), "
+              f"special characters jaise (), [], {{}}, :, ; na daalo. "
+              f"Sirf code likho, ``` waghera na lagao.")
     code = ask_llm(prompt, model=BIG_MODEL)
-    code = code.replace("```mermaid", "").replace("```", "").strip()
-    code = code.replace("<br/>", " ").replace("<br>", " ").replace("<br />", " ")
-    return code
+    return clean_mermaid(code)
 
 # ---- IMAGE ----
 def make_image(msg):
@@ -132,7 +149,6 @@ def chat():
         if not msg:
             return jsonify({"type": "text", "answer": "Sawal likho."})
 
-        # Sirf medical sawal par disclaimer + doctor line
         med = is_medical(msg)
         disc = get_disclaimer(msg) if med else ""
         doctor_line = get_doctor_line(msg) if med else ""
