@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Siddique AI Chat Bot</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({startOnLoad:false});</script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background:#f0f4f8; margin:0; }
+    .header { background:#1e3a8a; color:white; padding:15px; text-align:center; }
+    .header h1 { margin:0; font-size:22px; }
+    .header p { margin:5px 0 0; font-size:12px; opacity:0.8; }
+    #chat { max-width:800px; margin:20px auto; background:white;
+            border-radius:10px; padding:15px; height:60vh; overflow-y:auto;
+            box-shadow:0 2px 10px rgba(0,0,0,0.1); }
+    .msg { margin:10px 0; padding:10px; border-radius:8px; max-width:80%;
+           word-wrap:break-word; white-space:pre-wrap; }
+    .user { background:#dbeafe; margin-left:auto; text-align:right; }
+    .bot { background:#f3f4f6; }
+    .disclaimer { font-size:11px; color:#b45309; margin-top:5px; }
+    #inputBox { max-width:800px; margin:0 auto 20px; display:flex; gap:8px; padding:0 10px; }
+    #userInput { flex:1; padding:12px; border:1px solid #ccc; border-radius:8px; font-size:14px; }
+    button { padding:12px 20px; background:#1e3a8a; color:white;
+             border:none; border-radius:8px; cursor:pointer; font-size:14px; }
+    button:disabled { opacity:0.6; cursor:not-allowed; }
+    img.chat-img { max-width:300px; border-radius:8px; margin-top:8px; display:block; }
+    .mermaid { background:white; padding:10px; border-radius:8px; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Siddique AI Chat Bot</h1>
+    <p>Medical Information Assistant — Not a Doctor</p>
+  </div>
+
+  <div id="chat"></div>
+
+  <div id="inputBox">
+    <input id="userInput" placeholder="Sawal likho... (e.g. kidney ka diagram banao)"
+           onkeypress="if(event.key==='Enter') sendMsg()" />
+    <button id="sendBtn" onclick="sendMsg()">Send</button>
+  </div>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const sendBtn = document.getElementById('sendBtn');
+
+    function addMsg(text, cls) {
+      const d = document.createElement('div');
+      d.className = 'msg ' + cls;
+      d.innerText = text;
+      chat.appendChild(d);
+      chat.scrollTop = chat.scrollHeight;
+      return d;
+    }
+
+    async function sendMsg() {
+      const input = document.getElementById('userInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+      addMsg(msg, 'user');
+      input.value = '';
+      sendBtn.disabled = true;
+
+      const botDiv = addMsg('Siddique AI soch raha hai...', 'bot');
+
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: msg})
+        });
+        const data = await res.json();
+        botDiv.innerHTML = '';
+
+        if (data.type === 'text') {
+          botDiv.innerText = data.answer;
+        }
+        else if (data.type === 'refuse') {
+          botDiv.innerText = data.answer;
+        }
+        else if (data.type === 'diagram') {
+          const id = 'm' + Date.now();
+          const div = document.createElement('div');
+          div.id = id;
+          div.className = 'mermaid';
+          div.innerText = data.code;
+          botDiv.appendChild(div);
+          mermaid.run({nodes: [div]});
+          if (data.disclaimer) {
+            const dis = document.createElement('div');
+            dis.className = 'disclaimer';
+            dis.innerText = data.disclaimer;
+            botDiv.appendChild(dis);
+          }
+        }
+        else if (data.type === 'image') {
+          const img = document.createElement('img');
+          img.src = data.url;
+          img.className = 'chat-img';
+          img.alt = 'Generated image';
+          botDiv.appendChild(img);
+          if (data.disclaimer) {
+            const dis = document.createElement('div');
+            dis.className = 'disclaimer';
+            dis.innerText = data.disclaimer;
+            botDiv.appendChild(dis);
+          }
+        }
+      } catch (e) {
+        botDiv.innerText = 'Error: ' + e.message;
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
