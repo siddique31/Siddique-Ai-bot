@@ -20,6 +20,10 @@ Rules:
 5. Agar maloomat nahi to saaf kaho: "Is bare mein maloomat nahi hai."
 """
 
+# Groq ke naye model names (purane llama models band ho chuke hain)
+BIG_MODEL = "openai/gpt-oss-120b"   # normal jawab ke liye
+SMALL_MODEL = "openai/gpt-oss-20b"  # intent detection / image prompt ke liye
+
 _client = None
 
 def get_client():
@@ -31,7 +35,9 @@ def get_client():
         _client = Groq(api_key=api_key)
     return _client
 
-def ask_llm(prompt, model="llama-3.3-70b-versatile"):
+def ask_llm(prompt, model=None):
+    if model is None:
+        model = BIG_MODEL
     client = get_client()
     resp = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
@@ -52,7 +58,7 @@ def detect_intent(msg):
               f'Sirf ek word likho: DIAGRAM (flowchart/structure maange), '
               f'IMAGE (photo/picture maange), ya TEXT (baqi sab). Jawab:')
     try:
-        out = ask_llm(prompt, model="llama-3.1-8b-instant").strip().upper()
+        out = ask_llm(prompt, model=SMALL_MODEL).strip().upper()
         if "DIAGRAM" in out: return "DIAGRAM"
         if "IMAGE" in out: return "IMAGE"
         return "TEXT"
@@ -65,7 +71,7 @@ def make_diagram(msg):
               f"User diagram maang raha hai: \"{msg}\"\n"
               f"Sirf valid Mermaid code likho (graph TD ...), kuch aur nahi. "
               f"``` waghera na lagao.")
-    code = ask_llm(prompt)
+    code = ask_llm(prompt, model=BIG_MODEL)
     code = code.replace("```mermaid", "").replace("```", "").strip()
     return code
 
@@ -73,7 +79,7 @@ def make_diagram(msg):
 def make_image(msg):
     prompt = (f'Create a short English image prompt for this request: "{msg}". '
               f'Only the prompt text, nothing else.')
-    img_prompt = ask_llm(prompt, model="llama-3.1-8b-instant").strip().replace("\n", " ")
+    img_prompt = ask_llm(prompt, model=SMALL_MODEL).strip().replace("\n", " ")
     return f"https://image.pollinations.ai/prompt/{requests.utils.quote(img_prompt)}"
 
 # ---- ROUTES ----
@@ -113,7 +119,7 @@ def chat():
                 "disclaimer": DISCLAIMER
             })
 
-        answer = ask_llm(f"{SYSTEM_RULES}\n\nUser sawal: {msg}\n\nJawab:")
+        answer = ask_llm(f"{SYSTEM_RULES}\n\nUser sawal: {msg}\n\nJawab:", model=BIG_MODEL)
         return jsonify({"type": "text", "answer": answer + DISCLAIMER})
 
     except Exception as e:
